@@ -1,16 +1,19 @@
-FROM python:3.7-alpine
+FROM python:3.11-slim
 
-RUN apk update && \
-    apk add --virtual build-deps gcc musl-dev && \
-    rm -rf /var/cache/apk/*
+# Install system dependencies including ffmpeg
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY . /worker
 WORKDIR /worker
 
-RUN pip install -r requirements.txt
+ENV REDIS_URL=${REDIS_URL:-redis://localhost:6379}
+ENV UPLOAD_URL=${UPLOAD_URL:-http://localhost:8000/uploadfromworker}
+ENV UPLOAD_SECRET_KEY=${UPLOAD_SECRET_KEY:-yoursecretkeyhere}
 
-RUN apk del build-deps gcc musl-dev
-RUN apk add ffmpeg
-ENV REDIS_URL="redis://redis:6379"
-ENV UPLOAD_URL="http://app:8000/uploadfromworker"
-
-ENTRYPOINT [ "celery", "-A", "tasks", "worker", "--loglevel=info" ]
+CMD ["celery", "-A", "worker.tasks", "worker", "--loglevel=info", "--pool=solo"]

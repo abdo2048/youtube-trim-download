@@ -1,6 +1,7 @@
 import json
 import os
 import redis
+import time
 import yt_dlp
 from flask import Flask
 from flask import abort
@@ -21,7 +22,9 @@ CORS(app)
 
 UPLOAD_FOLDER = "videos"
 ON_HEROKU = "ON_HEROKU" in os.environ
-TRIM_TASK_NAME = "worker.tasks.trim" if ON_HEROKU else "tasks.trim"
+ON_RENDER = os.environ.get("RENDER_EXTERNAL_URL") is not None  # Render sets this environment variable
+ON_RAILWAY = os.environ.get("RAILWAY") is not None  # Railway sets this environment variable
+TRIM_TASK_NAME = "worker.tasks.trim" if (ON_HEROKU or ON_RENDER or ON_RAILWAY) else "tasks.trim"
 REDIS_LOCAL_URL = "redis://localhost:6379"
 REDIS_URL = os.environ.get("REDIS_URL", REDIS_LOCAL_URL)
 UPLOAD_SECRET_KEY = os.environ.get("UPLOAD_SECRET_KEY")
@@ -31,13 +34,55 @@ ALLOWED_VIDEO_SIZES = ("360", "480", "720")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
+# Initialize Celery
 celery = Celery(
     "tasks",
     broker=REDIS_URL,
     backend=REDIS_URL,
 )
 
-redis_instance = redis.from_url(REDIS_URL)
+redis_instance = None
+
+def get_redis_instance():
+    max_retries = 10
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            redis_conn = redis.from_url(REDIS_URL)
+            # Test the connection
+            redis_conn.ping()
+            print("Successfully connected to Redis")
+            return redis_conn
+        except Exception as e:
+            print(f"Failed to connect to Redis (attempt {retry_count + 1}/{max_retries}): {e}")
+            retry_count += 1
+            if retry_count >= max_retries:
+                print("Max retries reached. Application may not function properly without Redis.")
+                # Return a mock Redis instance to prevent crashes
+                class MockRedis:
+                    def ping(self):
+                        return True
+                    def scan_iter(self, match):
+                        return []
+                    def get(self, key):
+                        return None
+                    def set(self, key, value):
+                        pass
+                    def decode(self, value):
+                        return value
+                    def __getattr__(self, name):
+                        # Handle any other redis methods that might be called
+                        def dummy_method(*args, **kwargs):
+                            print(f"Warning: Called unimplemented Redis method {name}")
+                            return None
+                        return dummy_method
+                return MockRedis()
+            else:
+                print(f"Retrying in 5 seconds...")
+                time.sleep(5)
+
+redis_instance = get_redis_instance()
 
 ydl_opts = {}
 ydlr = yt_dlp.YoutubeDL(ydl_opts)
@@ -95,15 +140,16 @@ def json_response(success, data, message, status_code):
 
 def has_requester_active_task(ip):
     has_active_task = False
-    for task in redis_instance.scan_iter(match="celery-trim-task*"):
-        task_id = task.decode("utf-8")
-        task_details = json.loads(redis_instance.get(task_id).decode("utf-8"))
-        if task_details["ip"] == ip:
-            if (
-                celery.AsyncResult(task_details["task_id"], app=celery).status
-                == "PENDING"
-            ):
-                has_active_task = True
+    if redis_instance:
+        for task in redis_instance.scan_iter(match="celery-trim-task*"):
+            task_id = task.decode("utf-8")
+            task_details = json.loads(redis_instance.get(task_id).decode("utf-8"))
+            if task_details["ip"] == ip:
+                if (
+                    celery.AsyncResult(task_details["task_id"], app=celery).status
+                    == "PENDING"
+                ):
+                    has_active_task = True
     return has_active_task
 
 def calculate_trimmed_file_size(video_info, quality, start, end):
@@ -216,10 +262,11 @@ def trim():
                             "ip": requester_ip,
                         },
                     )
-                    redis_instance.set(
-                        "celery-trim-task-" + task.id,
-                        json.dumps({"ip": requester_ip, "task_id": task.id}),
-                    )
+                    if redis_instance:
+                        redis_instance.set(
+                            "celery-trim-task-" + task.id,
+                            json.dumps({"ip": requester_ip, "task_id": task.id}),
+                        )
                     return json_response(True, task.id, "Task successfully added!", 200)
             except Exception as e:
                 print(e)

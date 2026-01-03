@@ -5,6 +5,8 @@ import yt_dlp
 from celery import Celery
 from dotenv import load_dotenv
 from glob import glob
+import time
+import redis
 
 load_dotenv()
 
@@ -83,14 +85,19 @@ def trim(url, quality, start, end, ip):
                 f"{original_video_name}-s{start}-e{end}-trimmed.{final_ext}"
             )
 
+            # Calculate actual duration for the trim command
+            duration = end - start - 4  # subtract the 4 seconds we added earlier
+            if duration <= 0:
+                duration = 1  # minimum duration of 1 second
+
             audio_command = [
                 "ffmpeg",
                 "-ss",
-                str(start),
+                str(get_adjusted_start(start)),  # Use the helper function to adjust start time
                 "-i",
                 original_video_path,
                 "-t",
-                str(end),
+                str(duration),  # Use calculated duration instead of absolute end time
                 "-c:v",
                 "copy",
                 "-c:a",
@@ -104,11 +111,11 @@ def trim(url, quality, start, end, ip):
             video_command = [
                 "ffmpeg",
                 "-ss",
-                str(start),
+                str(get_adjusted_start(start)),  # Use the helper function to adjust start time
                 "-i",
                 original_video_path,
                 "-t",
-                str(end),
+                str(duration),  # Use calculated duration instead of absolute end time
                 "-avoid_negative_ts",
                 "make_zero",
                 "-c",
@@ -129,6 +136,7 @@ def trim(url, quality, start, end, ip):
             upload_result = requests.post(
                 UPLOAD_URL, files=file_to_upload, headers=headers
             )
+            file_to_upload["file"].close()  # Close the file after upload
             return upload_result.json()
     except Exception as e:
         print(e, "was handled")
