@@ -60,11 +60,6 @@ def get_path(id, quality):
     print(path)
     return path
 
-
-@app.route('/')
-def index():
-    return "Worker is running!"
-
 @celery.task
 def trim(url, quality, start, end, ip):
     start = int(start)

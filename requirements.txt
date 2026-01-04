@@ -1,7 +1,7 @@
 Flask==2.3.3
 Flask-Cors==4.0.0
 gunicorn==21.2.0
-yt-dlp>=2023.10.13
+yt-dlp==2021.10.10
 celery==5.3.4
 redis==5.0.1
 requests==2.31.0
