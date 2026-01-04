@@ -202,7 +202,14 @@ def get_video_details():
         url = request.json["url"]
         if url is not None:
             try:
-                request_video_result = ydlr.extract_info(url, download=False)
+                # Use extract_info with a timeout
+                request_video_result = ydlr.extract_info(url, download=False, process=False)
+                # If the video info wasn't extracted, try with yt-dlp's normal processing
+                if not request_video_result or "id" not in request_video_result:
+                    request_video_result = ydlr.extract_info(url, download=False)
+                # Ensure we have the formats data
+                if not request_video_result.get('formats'):
+                    request_video_result = ydlr.extract_info(url, download=False, force_process=True)
                 response = process_video_request(request_video_result)
                 return json_response(
                     True,
@@ -210,11 +217,15 @@ def get_video_details():
                     None,
                     200,
                 )
-            except:
-                return json_response(False, None, f"{url} is not a valid URL", 400)
+            except yt_dlp.utils.DownloadError as e:
+                print(f"Download error: {e}")
+                return json_response(False, None, f"{url} is not downloadable", 400)                
+            except Exception as e:
+                print(f"Error extracting video info: {e}")
+                return json_response(False, None, f"{url} is not a valid URL or video", 400)
         return json_response(False, None, "Please provide a valid URL", 400)
     else:
-        json_response(False, None, "Please provide a valid URL", 400)
+        return json_response(False, None, "Please provide a valid URL", 400)
 
 
 @app.route("/trim", methods=["POST"])
