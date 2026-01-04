@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app
 WORKDIR /app
 
-ENV REDIS_URL=${REDIS_URL:-redis://localhost:6379}
+ENV REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
 ENV UPLOAD_SECRET_KEY=${UPLOAD_SECRET_KEY:-yoursecretkeyhere}
 
 EXPOSE 8000

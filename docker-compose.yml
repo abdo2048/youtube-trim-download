@@ -13,6 +13,8 @@ services:
       - redis
     environment:
       - UPLOAD_SECRET_KEY=${UPLOAD_SECRET_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
   worker:
     image: flaskworker
     user: root
@@ -22,6 +24,8 @@ services:
       - redis
     environment:
       - UPLOAD_SECRET_KEY=${UPLOAD_SECRET_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
   celery-flower:
     build:
       context: ./celery-flower
@@ -29,8 +33,8 @@ services:
     ports:
       - 5555:5555
     environment:
-      CELERY_BROKER_URL: redis://redis:6379
-      CELERY_RESULT_BACKEND: redis://redis:6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
       - worker
       - redis

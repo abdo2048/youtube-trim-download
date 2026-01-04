@@ -10,17 +10,28 @@ import redis
 
 load_dotenv()
 
-REDIS_LOCAL_URL = "redis://localhost:6379"
+REDIS_LOCAL_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 UPLOAD_LOCAL_URL = "http://localhost:8000/uploadfromworker"
 UPLOAD_SECRET_KEY = os.environ.get("UPLOAD_SECRET_KEY")
 UPLOAD_URL = os.environ.get("UPLOAD_URL", UPLOAD_LOCAL_URL)
 VIDEOS_PATH = "videos/"
 
-celery = Celery(
-    "tasks",
-    broker=os.environ.get("REDIS_URL", REDIS_LOCAL_URL),
-    backend=os.environ.get("REDIS_URL", REDIS_LOCAL_URL),
-)
+
+def make_celery(app):
+    celery = Celery(
+        app.import_name,
+        backend=REDIS_LOCAL_URL,
+        broker=REDIS_LOCAL_URL
+    )
+    celery.conf.update(app.config)
+
+    class ContextTask(celery.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+
+    celery.Task = ContextTask
+    return celery
 
 
 def create_videos_folder():
@@ -49,6 +60,10 @@ def get_path(id, quality):
     print(path)
     return path
 
+
+@app.route('/')
+def index():
+    return "Worker is running!"
 
 @celery.task
 def trim(url, quality, start, end, ip):
